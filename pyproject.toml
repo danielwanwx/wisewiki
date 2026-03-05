@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wisewiki"
+version = "0.1.0"
+description = "Lightweight local wiki for AI-captured code understanding"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0",
+    "click>=8.0",
+    "markdown>=3.5",
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.scripts]
+wiki = "wisewiki.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
