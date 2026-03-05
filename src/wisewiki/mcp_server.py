@@ -1,10 +1,12 @@
 # src/wisewiki/mcp_server.py
 
 import asyncio
+import hashlib
 import logging
 import re
 import time
 from pathlib import Path
+from typing import Dict, Tuple
 
 import mcp.types as types
 from mcp.server import Server
@@ -15,6 +17,14 @@ from wisewiki.html_writer import HtmlWriter
 from wisewiki.models import CacheEntry
 
 logger = logging.getLogger(__name__)
+
+# Session-scoped deduplication state (ephemeral)
+_session_saves: Dict[Tuple[str, str], str] = {}
+
+
+def _compute_content_hash(content: str) -> str:
+    """Compute SHA256 hash for deduplication (first 16 chars)."""
+    return hashlib.sha256(content.encode('utf-8')).hexdigest()[:16]
 
 NAME_RE = re.compile(r'^[a-zA-Z0-9_-]+$')
 
@@ -233,9 +243,40 @@ async def run_server(wiki_dir: Path) -> None:
                 content = content_bytes[:50 * 1024].decode("utf-8", errors="ignore")
                 truncation_warning = "\n\n⚠ Content truncated to 50KB limit."
 
+            # Phase 2: Session-level deduplication check
+            key = (repo, module)
+            content_hash = _compute_content_hash(content)
+
             module_dir = wiki_dir / "repos" / repo / "modules"
             module_dir.mkdir(parents=True, exist_ok=True)
             md_path = module_dir / f"{module}.md"
+
+            if key in _session_saves and _session_saves[key] == content_hash:
+                # Already saved in this session with identical content
+                file_url = f"file://{md_path.with_suffix('.html')}"
+                text = (
+                    f"Already saved {repo}/{module} in this session. "
+                    f"Use wiki_resolve to retrieve it.\n\n{file_url}"
+                )
+                return [types.TextContent(type="text", text=text)]
+
+            # Phase 1: Disk-level content comparison
+            operation_type = "created"
+            if md_path.exists():
+                existing_content = md_path.read_text(encoding="utf-8")
+                if existing_content == content:
+                    # Content unchanged - skip write operations
+                    file_url = f"file://{md_path.with_suffix('.html')}"
+                    text = (
+                        f"No changes detected for {repo}/{module}. "
+                        f"Wiki page is already up-to-date.\n\n{file_url}"
+                    )
+                    # Update session cache even though we skip write
+                    _session_saves[key] = content_hash
+                    return [types.TextContent(type="text", text=text)]
+                operation_type = "updated"
+
+            # Perform save operations
             tmp_md = md_path.with_suffix(".md.tmp")
             tmp_md.write_text(content, encoding="utf-8")
             tmp_md.replace(md_path)
@@ -251,8 +292,15 @@ async def run_server(wiki_dir: Path) -> None:
             except Exception as e:
                 logger.warning(f"HTML generation failed: {e}")
 
+            # Record in session cache after successful save
+            _session_saves[key] = content_hash
+
             file_url = f"file://{html_path}" if html_path else f"file://{md_path}"
-            text = f"Saved wiki page for {repo}/{module}.\n\n{file_url}{truncation_warning}"
+            verb = "Created" if operation_type == "created" else "Updated"
+            text = (
+                f"{verb} wiki page for {repo}/{module}.\n\n"
+                f"{file_url}{truncation_warning}"
+            )
             return [types.TextContent(type="text", text=text)]
 
         raise ValueError(f"Unknown tool: {name}")
