@@ -1,6 +1,7 @@
 # src/wisewiki/setup_wizard.py
 
 import json
+import shutil
 from pathlib import Path
 
 
@@ -17,6 +18,7 @@ Save code insights from this conversation to your local wiki.
      - `repo`: infer from file paths (use directory name, kebab-case, e.g. "my-project")
      - `module`: component name in snake_case (e.g. "auth_service", "data_pipeline")
      - `content`: structured markdown with your understanding
+     - `source_files`: optional list of concrete files discussed for provenance
 3. Report saved pages with their file:// links
 
 ## Content Format
@@ -39,6 +41,12 @@ Focus on WHY, not just what — the code already shows what it does.
 ## Architecture (if applicable)
 How this module connects to other modules. Data flow.
 
+## Gotchas (if applicable)
+- Hidden behavior, non-obvious constraints, or pitfalls future sessions should remember.
+
+## Open Questions (if applicable)
+- Important unresolved questions worth carrying into a future coding session.
+
 ## Metrics (if mentioned)
 - Any performance figures, latency numbers, or scale characteristics discussed
 ```
@@ -59,6 +67,7 @@ How this module connects to other modules. Data flow.
 - WHAT the public contract is (inputs, outputs, side effects)
 - GOTCHAS and non-obvious behaviors discovered during debugging
 - CONTEXT that the code itself doesn't make obvious
+- SOURCE FILES when you can point to the concrete evidence
 
 ## What to Skip
 - Trivial files: `__init__.py` with no logic, `conftest.py`, pure config
@@ -77,6 +86,21 @@ Saved 3 wiki pages for help-cpl:
 
 Run `wiki view help-cpl` to browse all pages.
 """
+
+
+def _mcp_server_config(wiki_dir: str) -> dict:
+    """Build mcpServers entry. Use uvx for auto-update if available."""
+    if shutil.which("uvx"):
+        return {
+            "command": "uvx",
+            "args": ["--from", "wisewiki", "wiki", "serve"],
+            "env": {"WIKI_DIR": wiki_dir},
+        }
+    return {
+        "command": "wiki",
+        "args": ["serve"],
+        "env": {"WIKI_DIR": wiki_dir},
+    }
 
 
 def run_setup(platform: str | None) -> None:
@@ -115,19 +139,19 @@ def _setup_claude(wiki_dir: str) -> None:
         with open(config_path) as f:
             config = json.load(f)
     config.setdefault("mcpServers", {})
-    config["mcpServers"]["wisewiki"] = {
-        "command": "wiki",
-        "args": ["serve"],
-        "env": {"WIKI_DIR": wiki_dir},
-    }
+    server_cfg = _mcp_server_config(wiki_dir)
+    config["mcpServers"]["wisewiki"] = server_cfg
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
 
     skills_dir = Path.home() / ".claude" / "skills"
     skill_path = _install_skill(skills_dir)
 
-    click.echo(f"Configured Claude Code:")
-    click.echo(f"  MCP server: ~/.claude.json → mcpServers.wisewiki")
+    using_uvx = server_cfg["command"] == "uvx"
+    click.echo("Configured Claude Code:")
+    click.echo("  MCP server: ~/.claude.json → mcpServers.wisewiki")
+    if using_uvx:
+        click.echo("  Auto-update: enabled (via uvx)")
     click.echo(f"  Skill file: {skill_path}")
     click.echo()
     click.echo("Restart Claude Code to activate.")
@@ -143,16 +167,16 @@ def _setup_cursor(wiki_dir: str) -> None:
         with open(config_path) as f:
             config = json.load(f)
     config.setdefault("mcpServers", {})
-    config["mcpServers"]["wisewiki"] = {
-        "command": "wiki",
-        "args": ["serve"],
-        "env": {"WIKI_DIR": wiki_dir},
-    }
+    server_cfg = _mcp_server_config(wiki_dir)
+    config["mcpServers"]["wisewiki"] = server_cfg
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
 
+    using_uvx = server_cfg["command"] == "uvx"
     click.echo("Configured Cursor:")
     click.echo("  MCP server: ~/.cursor/mcp.json → mcpServers.wisewiki")
+    if using_uvx:
+        click.echo("  Auto-update: enabled (via uvx)")
     click.echo()
     click.echo("Restart Cursor to activate.")
     click.echo('Ask the AI: "Use wiki_capture to save what we just discussed."')
@@ -168,10 +192,6 @@ def _install_skill(skills_dir: Path) -> Path:
 def _print_manual_instructions() -> None:
     import click
     click.echo("No IDE config found. Add wisewiki manually:\n")
-    click.echo("Claude Code (~/.claude.json):")
-    click.echo(json.dumps({
-        "mcpServers": {"wisewiki": {"command": "wiki", "args": ["serve"],
-                                    "env": {"WIKI_DIR": "~/.wisewiki"}}}
-    }, indent=2))
-    click.echo()
-    click.echo("Cursor (~/.cursor/mcp.json): same JSON format above.")
+    cfg = _mcp_server_config(str(Path.home() / ".wisewiki"))
+    click.echo("Claude Code (~/.claude.json) or Cursor (~/.cursor/mcp.json):")
+    click.echo(json.dumps({"mcpServers": {"wisewiki": cfg}}, indent=2))

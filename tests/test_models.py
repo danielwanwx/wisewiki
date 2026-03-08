@@ -49,6 +49,27 @@ def test_cache_entry_roundtrip():
     assert restored.sections == entry.sections
 
 
+def test_cache_entry_metadata_roundtrip():
+    entry = CacheEntry(
+        title="Session Entry",
+        summary="Captured from an AI session.",
+        capture_kind="session",
+        session_id="session-123",
+        captured_at=1234.5,
+        source_files=["src/wisewiki/mcp_server.py"],
+        staleness_state="fresh",
+        quality_score=0.85,
+    )
+    d = entry.to_dict()
+    restored = CacheEntry.from_dict(d)
+    assert restored.capture_kind == "session"
+    assert restored.session_id == "session-123"
+    assert restored.captured_at == 1234.5
+    assert restored.source_files == ["src/wisewiki/mcp_server.py"]
+    assert restored.staleness_state == "fresh"
+    assert restored.quality_score == 0.85
+
+
 def test_search_result_fields():
     entry = CacheEntry(title="T", summary="S")
     sr = SearchResult(key="repo/mod", repo="repo", module="mod", entry=entry, score=42.0)

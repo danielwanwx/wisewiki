@@ -50,6 +50,37 @@ def test_entry_from_md_decisions(tmp_path):
     assert "flat cache format" in entry["decisions"]
 
 
+def test_entry_from_md_extracts_session_metadata_and_source_files(tmp_path):
+    content = """## Purpose
+Capture session knowledge.
+
+## Source Files
+- `src/wisewiki/mcp_server.py`
+- `src/wisewiki/html_writer.py`
+
+## Key Functions
+- `wiki_capture()`: saves the page
+"""
+    path = tmp_path / "session_capture.md"
+    path.write_text(content)
+    entry = _entry_from_md(
+        content,
+        path,
+        capture_kind="session",
+        session_id="session-123",
+        captured_at=456.0,
+    )
+    assert entry["capture_kind"] == "session"
+    assert entry["session_id"] == "session-123"
+    assert entry["captured_at"] == 456.0
+    assert entry["source_files"] == [
+        "src/wisewiki/mcp_server.py",
+        "src/wisewiki/html_writer.py",
+    ]
+    assert entry["staleness_state"] == "fresh"
+    assert entry["quality_score"] > 0
+
+
 def test_route_intent():
     assert _route_intent("list") == "list_repos"
     assert _route_intent("repos") == "list_repos"
