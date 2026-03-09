@@ -4,6 +4,9 @@ Local-first session memory for AI-assisted coding.
 
 AI assistants forget most of the high-signal knowledge discovered during a coding session. wisewiki captures that knowledge, turns it into browsable HTML session recaps and module pages, and lets future sessions resolve it instantly at zero extra LLM cost.
 
+<img width="2656" height="1696" alt="image" src="https://github.com/user-attachments/assets/036bcda4-36c5-4401-bb9e-3cec11bd462a" />
+
+
 ## How it works
 
 1. You discuss code with an AI assistant (Claude Code, Cursor)
