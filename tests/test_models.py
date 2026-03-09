@@ -1,5 +1,6 @@
 """Tests for wisewiki.models."""
 
+from wisewiki import __version__
 from wisewiki.models import CacheEntry, SearchResult, WikiPage
 
 
@@ -81,3 +82,7 @@ def test_wiki_page_fields():
     wp = WikiPage(repo="r", module="m", content="# hi", html_path="/a.html", md_path="/a.md")
     assert wp.repo == "r"
     assert wp.content == "# hi"
+
+
+def test_package_version_is_v1():
+    assert __version__ == "1.0.0"

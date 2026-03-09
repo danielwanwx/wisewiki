@@ -91,10 +91,10 @@ Render human-visible HTML pages for captures, sessions, and graphs.
 
     index_text = index_html.read_text(encoding="utf-8")
     assert "Recent Sessions" in index_text
-    assert "Recent Captures" in index_text
-    assert "Session captures only" in index_text
-    assert "Hide low signal" in index_text
-    assert "Only with provenance" in index_text
+    assert "Your AI Session Wiki" in index_text
+    assert "Latest Session" in index_text
+    assert 'class="home-graph-preview"' in index_text
+    assert "Trusted Modules" in index_text
 
     graph_data = json.loads(graph_json.read_text(encoding="utf-8"))
     assert len(graph_data["nodes"]) >= 2
@@ -215,10 +215,17 @@ def test_full_v1_workflow_acceptance(tmp_path):
 
     index_html = (wiki_dir / "repos" / "wisewiki" / "index.html").read_text(encoding="utf-8")
     session_html = (wiki_dir / "repos" / "wisewiki" / "sessions" / "acceptance-session.html").read_text(encoding="utf-8")
+    graph_html = (wiki_dir / "repos" / "wisewiki" / "graph.html").read_text(encoding="utf-8")
     graph_json = json.loads((wiki_dir / "repos" / "wisewiki" / "graph.json").read_text(encoding="utf-8"))
 
-    assert "Recent Sessions" in index_html
-    assert "Trusted Knowledge" in index_html
+    assert "Your AI Session Wiki" in index_html
+    assert "Latest Session" in index_html
+    assert "Trusted Modules" in index_html
+    assert 'class="home-graph-preview"' in index_html
     assert "acceptance-session" in session_html
     assert "human-visible" in session_html
+    assert "Evidence Highlights" in session_html
+    assert "Session Health" in session_html
+    assert "Kind Filters" in graph_html
+    assert "Focus neighbors" not in graph_html
     assert len(graph_json["nodes"]) >= 2

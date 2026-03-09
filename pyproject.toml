@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wisewiki"
-version = "0.1.0"
+version = "1.0.0"
 description = "Lightweight local wiki for AI-captured code understanding"
 readme = "README.md"
 license = {text = "MIT"}

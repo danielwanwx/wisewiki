@@ -31,7 +31,7 @@ class WikiPublisher:
             existing_summaries=self._existing_claim_summaries(repo, module),
             staleness_state=entry.staleness_state,
         )
-        html_path = self.html_writer.write_module_page(repo, module, content, md_path, entry=entry)
+        html_path = md_path.with_suffix(".html")
         self.store.record_capture(
             repo=repo,
             session_id=entry.session_id,
@@ -41,6 +41,7 @@ class WikiPublisher:
             promoted_claims=promoted,
             session_events=session_events,
         )
+        html_path = self.html_writer.write_module_page(repo, module, content, md_path, entry=entry)
         recap = self.store.build_session_recap(repo, entry.session_id)
         recap_path = self.html_writer.write_session_page(repo, recap)
         graph_data = self.store.get_graph_data(repo)

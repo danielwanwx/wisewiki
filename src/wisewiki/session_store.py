@@ -277,6 +277,38 @@ class SessionStore:
             captures.append(item)
         return captures
 
+    def get_module_claims(self, repo: str, module: str, limit: int = 6) -> list[dict]:
+        rows = self.conn.execute(
+            """
+            SELECT session_id, kind, summary, why_it_matters, final_score,
+                   evidence_refs_json, staleness_state, created_at
+            FROM claims
+            WHERE repo = ? AND module = ? AND status = 'promoted'
+            ORDER BY final_score DESC, created_at DESC
+            LIMIT ?
+            """,
+            (repo, module, limit),
+        ).fetchall()
+        claims = []
+        for row in rows:
+            item = dict(row)
+            item["evidence_refs"] = json.loads(item.pop("evidence_refs_json"))
+            claims.append(item)
+        return claims
+
+    def get_module_sessions(self, repo: str, module: str, limit: int = 4) -> list[dict]:
+        rows = self.conn.execute(
+            """
+            SELECT session_id AS id, summary, captured_at, quality_score
+            FROM captures
+            WHERE repo = ? AND module = ?
+            ORDER BY captured_at DESC
+            LIMIT ?
+            """,
+            (repo, module, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def get_graph_data(self, repo: str) -> dict:
         capture_rows = self.conn.execute(
             """
@@ -319,6 +351,7 @@ class SessionStore:
                     "id": node_id,
                     "label": row["module"],
                     "type": "module",
+                    "module": row["module"],
                     "session_id": row["session_id"],
                     "confidence": row["quality_score"],
                     "staleness_state": row["staleness_state"],
@@ -334,12 +367,23 @@ class SessionStore:
                     "id": node_id,
                     "label": row["summary"],
                     "type": row["kind"],
+                    "module": row["module"],
                     "session_id": row["session_id"],
                     "confidence": row["final_score"],
                     "staleness_state": row["staleness_state"],
                 }
             )
         edges = [dict(row) for row in edge_rows]
+        for row in claim_rows:
+            claim_node_id = f"{row['kind']}:{row['module']}:{abs(hash(row['summary'])) % 100000}"
+            edges.append(
+                {
+                    "source_key": f"module:{row['module']}",
+                    "target_key": claim_node_id,
+                    "edge_type": "claim_support",
+                    "weight": max(0.6, row["final_score"]),
+                }
+            )
         return {"nodes": nodes, "edges": edges}
 
 

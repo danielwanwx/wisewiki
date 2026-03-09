@@ -18,7 +18,7 @@ from wisewiki.publisher import WikiPublisher
 logger = logging.getLogger(__name__)
 
 # Session-scoped deduplication state (ephemeral)
-_session_saves: Dict[Tuple[str, str], str] = {}
+_session_saves: Dict[Tuple[str, str, str, str], str] = {}
 _SERVER_SESSION_ID = time.strftime("session-%Y%m%d-%H%M%S", time.localtime())
 
 
@@ -254,7 +254,7 @@ def capture_wiki_page(
     normalized_events = _normalize_session_events(resolved_session_id, session_events)
     inferred_paths = _source_paths_from_events(normalized_events)
     source_files = source_files or inferred_paths or None
-    key = (repo, module)
+    key = (str(wiki_dir.resolve()), resolved_session_id, repo, module)
     content_hash = _compute_content_hash(content)
 
     module_dir = wiki_dir / "repos" / repo / "modules"

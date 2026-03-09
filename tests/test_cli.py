@@ -85,6 +85,45 @@ def test_reindex(tmp_path):
     assert index_html.exists()
 
 
+def test_reindex_rebuilds_module_session_and_graph_pages(tmp_path):
+    cache = WikiCache(tmp_path / ".index" / "cache.json")
+    cache.load()
+    capture_wiki_page(
+        wiki_dir=tmp_path,
+        cache=cache,
+        repo="demo",
+        module="html_writer",
+        content="## Purpose\nRender pages.\n\n## Source Files\n- `src/wisewiki/html_writer.py`\n",
+        session_id="session-demo",
+    )
+    capture_wiki_page(
+        wiki_dir=tmp_path,
+        cache=cache,
+        repo="demo",
+        module="mcp_server",
+        content="## Purpose\nPublish wiki pages.\n\n## Source Files\n- `src/wisewiki/mcp_server.py`\n",
+        session_id="session-demo",
+    )
+
+    repo_dir = tmp_path / "repos" / "demo"
+    module_html = repo_dir / "modules" / "html_writer.html"
+    session_html = repo_dir / "sessions" / "session-demo.html"
+    graph_html = repo_dir / "graph.html"
+    module_html.write_text("stale module", encoding="utf-8")
+    session_html.write_text("stale session", encoding="utf-8")
+    graph_html.write_text("stale graph", encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["reindex", "demo", "--wiki-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Regenerated" in result.output
+    assert 'class="nav-link nav-link-home"' in module_html.read_text(encoding="utf-8")
+    assert 'href="../graph.html"' in module_html.read_text(encoding="utf-8")
+    assert 'href="../modules/mcp_server.html"' in session_html.read_text(encoding="utf-8")
+    assert "graph-canvas" in graph_html.read_text(encoding="utf-8")
+
+
 def test_reindex_nonexistent_repo(tmp_path):
     runner = CliRunner()
     result = runner.invoke(cli, ["reindex", "nonexistent", "--wiki-dir", str(tmp_path)])

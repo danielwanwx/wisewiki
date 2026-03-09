@@ -96,13 +96,13 @@ def _resolve_repo_dir(repo: str, wiki_dir: str) -> tuple[Path, Path]:
 @click.argument("repo")
 @click.option("--wiki-dir", envvar="WIKI_DIR", default="~/.wisewiki")
 def reindex(repo: str, wiki_dir: str) -> None:
-    """Regenerate index.html for a repo (e.g. after manual edits)."""
-    wiki_path, repo_dir = _resolve_repo_dir(repo, wiki_dir)
+    """Regenerate repo HTML artifacts from stored wiki data."""
+    wiki_path, _repo_dir = _resolve_repo_dir(repo, wiki_dir)
 
     from wisewiki.html_writer import HtmlWriter
     writer = HtmlWriter(wiki_path)
-    writer.generate_index(repo)
-    click.echo(f"Regenerated index for {repo}.")
+    writer.rebuild_repo(repo)
+    click.echo(f"Regenerated pages for {repo}.")
 
 
 @cli.command()
