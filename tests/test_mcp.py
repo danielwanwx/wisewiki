@@ -87,6 +87,8 @@ def test_route_intent():
     assert _route_intent("repositories") == "list_repos"
     assert _route_intent("list repos") == "list_repos"
     assert _route_intent("show repos") == "list_repos"
+    assert _route_intent("setup") == "setup_help"
+    assert _route_intent("wiki setup claude") == "setup_help"
     assert _route_intent("executor") == "explain_module"
     assert _route_intent("auth_service") == "explain_module"
     assert _route_intent("how does executor work") == "search"
@@ -128,6 +130,14 @@ def test_resolve_not_found(tmp_path):
     assert result.startswith("[REPO_NOT_FOUND]")
 
 
+def test_resolve_setup_returns_terminal_instructions(tmp_path):
+    cache = WikiCache(tmp_path / "cache.json")
+    cache._data = {}
+    result = _resolve("setup", None, "auto", cache, tmp_path)
+    assert "Run `wiki setup claude`" in result
+    assert "terminal" in result.lower()
+
+
 def test_resolve_disk_fallback(tmp_path):
     # Set up a .md file on disk without cache entry
     module_dir = tmp_path / "repos" / "myrepo" / "modules"
@@ -163,6 +173,31 @@ def test_resolve_search(tmp_path):
     }
     result = _resolve("pipeline tasks", None, "auto", cache, tmp_path)
     assert "Executor" in result
+
+
+def test_resolve_search_skips_legacy_non_dict_cache_entries(tmp_path):
+    cache = WikiCache(tmp_path / "cache.json")
+    cache._data = {
+        "legacy/bad": "legacy string entry",
+        "myrepo/executor": {
+            "title": "Executor",
+            "summary": "Runs pipeline tasks",
+            "sections": ["Purpose"],
+            "key_facts": [],
+            "tables": [],
+            "decisions": [],
+            "code_sigs": [],
+            "metrics": [],
+            "abs_path": "",
+            "generator": "wiki_capture",
+            "wiki_generated": 1000.0,
+            "tokens_est_l1": 50,
+            "tokens_est_l2": 100,
+            "source_files": [],
+        },
+    }
+    result = _resolve("setup", None, "auto", cache, tmp_path)
+    assert "Run `wiki setup claude`" in result
 
 
 class TestWikiCaptureDeduplication:

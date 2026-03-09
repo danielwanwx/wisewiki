@@ -56,6 +56,8 @@ class WikiCache:
         for key, entry_dict in self._data.items():
             if repo_filter and not key.startswith(f"{repo_filter}/"):
                 continue
+            if not isinstance(entry_dict, dict):
+                continue
 
             repo, _, module = key.partition("/")
             score = _score_entry(key, entry_dict, query_lower, query_tokens)
@@ -114,6 +116,8 @@ def _format_l1(r: SearchResult, file_url: str) -> str:
 
 def _score_entry(key: str, entry: dict, query_lower: str, tokens: list[str]) -> float:
     """Score entry against query. Higher = better match."""
+    if not isinstance(entry, dict):
+        return 0.0
     score = 0.0
     searchable = " ".join([
         key,

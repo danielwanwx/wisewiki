@@ -334,9 +334,23 @@ def _route_intent(query: str) -> str:
     q = query.strip().lower()
     if q in ("list", "repos", "repositories", "list repos", "show repos"):
         return "list_repos"
+    if q in ("setup", "install", "configure", "configuration") or q.startswith("wiki setup"):
+        return "setup_help"
     if re.match(r'^[a-zA-Z0-9_-]+$', q):
         return "explain_module"
     return "search"
+
+
+def _setup_help_text() -> str:
+    return (
+        "Wisewiki setup is a terminal command, not a wiki page lookup.\n\n"
+        "Run `wiki setup claude` in your terminal to install or repair the Claude integration.\n"
+        "After that, start a new Claude Code session so the `/wiki-save` skill is reloaded.\n\n"
+        "Useful commands:\n"
+        "- `wiki setup claude`\n"
+        "- `wiki status`\n"
+        "- `wiki reindex --repo <repo>`"
+    )
 
 
 def _resolve(query: str, repo: str | None, depth: str, cache: WikiCache, wiki_dir: Path) -> str:
@@ -351,6 +365,8 @@ def _resolve(query: str, repo: str | None, depth: str, cache: WikiCache, wiki_di
             count = sum(1 for k in cache._data if k.startswith(f"{r}/"))
             lines.append(f"- `{r}` ({count} pages)")
         return "\n".join(lines)
+    if intent == "setup_help":
+        return _setup_help_text()
 
     results = cache.search(query, repo_filter=repo)
     if results:
