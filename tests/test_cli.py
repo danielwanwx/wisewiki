@@ -1,5 +1,6 @@
 """Tests for wisewiki.cli."""
 
+import json
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -122,6 +123,77 @@ def test_reindex_rebuilds_module_session_and_graph_pages(tmp_path):
     assert 'href="../graph.html"' in module_html.read_text(encoding="utf-8")
     assert 'href="../modules/mcp_server.html"' in session_html.read_text(encoding="utf-8")
     assert "graph-canvas" in graph_html.read_text(encoding="utf-8")
+
+
+def test_reindex_recovers_graph_and_session_pages_from_cache_only_repo(tmp_path):
+    repo = "legacy"
+    module_dir = tmp_path / "repos" / repo / "modules"
+    module_dir.mkdir(parents=True)
+    (tmp_path / ".index").mkdir(parents=True)
+
+    (module_dir / "alpha.md").write_text("## Purpose\nAlpha module.\n", encoding="utf-8")
+    (module_dir / "beta.md").write_text("## Purpose\nBeta module.\n", encoding="utf-8")
+    (tmp_path / ".index" / "cache.json").write_text(
+        json.dumps(
+            {
+                f"{repo}/alpha": {
+                    "title": "Alpha",
+                    "summary": "Alpha summary.",
+                    "sections": ["Purpose"],
+                    "key_facts": [],
+                    "tables": [],
+                    "decisions": [],
+                    "code_sigs": [],
+                    "metrics": [],
+                    "abs_path": str((module_dir / "alpha.md").resolve()),
+                    "generator": "wiki_capture",
+                    "wiki_generated": 200.0,
+                    "captured_at": 200.0,
+                    "capture_kind": "session",
+                    "session_id": "legacy-session",
+                    "source_files": [],
+                    "staleness_state": "fresh",
+                    "quality_score": 0.9,
+                    "tokens_est_l1": 50,
+                    "tokens_est_l2": 100,
+                },
+                f"{repo}/beta": {
+                    "title": "Beta",
+                    "summary": "Beta summary.",
+                    "sections": ["Purpose"],
+                    "key_facts": [],
+                    "tables": [],
+                    "decisions": [],
+                    "code_sigs": [],
+                    "metrics": [],
+                    "abs_path": str((module_dir / "beta.md").resolve()),
+                    "generator": "wiki_capture",
+                    "wiki_generated": 100.0,
+                    "captured_at": 100.0,
+                    "capture_kind": "session",
+                    "session_id": "legacy-session",
+                    "source_files": [],
+                    "staleness_state": "unknown",
+                    "quality_score": 0.7,
+                    "tokens_est_l1": 50,
+                    "tokens_est_l2": 100,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["reindex", repo, "--wiki-dir", str(tmp_path)])
+
+    graph_json = json.loads((tmp_path / "repos" / repo / "graph.json").read_text(encoding="utf-8"))
+    session_html = (tmp_path / "repos" / repo / "sessions" / "legacy-session.html").read_text(encoding="utf-8")
+    index_html = (tmp_path / "repos" / repo / "index.html").read_text(encoding="utf-8")
+
+    assert result.exit_code == 0
+    assert graph_json["nodes"]
+    assert "Alpha" in session_html
+    assert 'data-card-href="sessions/legacy-session.html"' in index_html
 
 
 def test_reindex_nonexistent_repo(tmp_path):

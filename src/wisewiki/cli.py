@@ -177,13 +177,11 @@ def graph(repo: str, wiki_dir: str) -> None:
     graph_json = repo_dir / "graph.json"
     if not graph_html.exists() or not graph_json.exists():
         from wisewiki.html_writer import HtmlWriter
-        from wisewiki.session_store import SessionStore
 
-        store = SessionStore(wiki_path)
         writer = HtmlWriter(wiki_path)
-        graph_data = store.get_graph_data(repo)
-        graph_json = writer.write_graph_data(repo, graph_data)
-        graph_html = writer.write_graph_page(repo, graph_data)
+        writer.rebuild_repo(repo)
+        graph_json = repo_dir / "graph.json"
+        graph_html = repo_dir / "graph.html"
     click.echo(f"Graph HTML: file://{graph_html}")
     click.echo(f"Graph JSON: {graph_json}")
 

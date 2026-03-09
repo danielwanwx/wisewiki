@@ -2,13 +2,14 @@
 
 import json
 import math
+import re
 from datetime import datetime
 from html import escape
 from pathlib import Path
 
 import markdown as md_lib
 
-from wisewiki.models import CacheEntry, SessionRecap
+from wisewiki.models import CacheEntry, PromotedClaim, SessionRecap
 from wisewiki.session_store import SessionStore
 
 
@@ -30,42 +31,79 @@ BASE_TEMPLATE = """\
     .nav-group {{ margin-top: 1rem; }}
     .nav-section-title {{ margin: 0 0 0.45rem; padding: 0 0.35rem; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #6b7280; }}
     .nav-links {{ display: grid; gap: 0.2rem; }}
-    .nav-link {{ display: flex; align-items: center; gap: 0.55rem; min-height: 38px; padding: 0.5rem 0.7rem; border-radius: 10px; color: #374151; text-decoration: none; transition: background 120ms ease, color 120ms ease; }}
+    .nav-link {{ display: flex; align-items: center; gap: 0.55rem; min-height: 38px; min-width: 0; padding: 0.5rem 0.7rem; border-radius: 10px; color: #374151; text-decoration: none; transition: background 120ms ease, color 120ms ease; }}
     .nav-link::before {{ content: ""; width: 0.5rem; height: 0.5rem; border-radius: 999px; background: #cbd5e1; flex: 0 0 auto; }}
     .nav-link:hover {{ background: #f3f4f6; color: #111827; }}
     .nav-link.is-active {{ background: #eef2ff; color: #2563eb; font-weight: 700; }}
     .nav-link.is-active::before {{ background: #2563eb; }}
+    .nav-label {{ display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
     .nav-link-home::before {{ background: #94a3b8; }}
     .nav-link-graph::before {{ background: #a78bfa; }}
     .nav-link-session::before {{ background: #60a5fa; }}
     .nav-link-module::before {{ background: #86efac; }}
     main {{ flex: 1; padding: 2rem; max-width: 980px; }}
     main.main-full {{ max-width: 1280px; margin: 0 auto; padding: 2.5rem 2rem 4rem; }}
+    main.detail-main {{ max-width: 860px; margin: 0 auto; padding: 3rem 2.75rem 4.5rem; }}
     h1, h2, h3 {{ color: #111827; }}
-    h2 {{ margin-top: 2rem; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.35rem; }}
+    h2 {{ margin-top: 3rem; margin-bottom: 0.9rem; border-bottom: 0; padding-bottom: 0; font-size: 1.55rem; line-height: 1.15; letter-spacing: -0.02em; }}
     .hero {{ margin-bottom: 1.5rem; }}
     .hero p {{ color: #4b5563; line-height: 1.6; }}
     .meta, .filters, .card-grid {{ display: grid; gap: 0.75rem; }}
-    .meta {{ grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin: 1rem 0 1.5rem; }}
+    .meta {{ grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin: 1.25rem 0 2rem; }}
     .meta-card, .card, .filter-card, .graph-shell {{ background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem; }}
+    .page-header {{ margin-bottom: 2.5rem; padding-bottom: 1.6rem; border-bottom: 1px solid #e5e7eb; }}
+    .page-header.compact {{ margin-bottom: 1.1rem; padding-bottom: 0.85rem; }}
+    .page-header h1 {{ margin: 0.15rem 0 0; max-width: 16ch; font-size: clamp(2.3rem, 5vw, 3.9rem); line-height: 1.03; letter-spacing: -0.032em; font-weight: 600; text-wrap: balance; }}
+    .page-header .eyebrow {{ margin-bottom: 0.55rem; }}
+    .page-summary {{ max-width: 42rem; margin: 1rem 0 0; font-size: 1.08rem; line-height: 1.62; color: #374151; font-weight: 500; }}
+    .page-summary-detail {{ max-width: 38rem; margin: 0.5rem 0 0; font-size: 0.98rem; line-height: 1.72; color: #6b7280; font-weight: 400; }}
+    .page-body {{ display: grid; gap: 0.2rem; }}
+    .page-body > h2:first-of-type {{ margin-top: 1.75rem; }}
+    .detail-section {{ margin-top: 2.25rem; }}
+    .page-body > .detail-section:first-of-type {{ margin-top: 1.1rem; }}
+    .page-header.compact + .detail-section {{ margin-top: 0.35rem; }}
+    .detail-section > h2:first-child {{ margin-top: 0; }}
+    .prose-block {{ max-width: 42rem; margin-top: 2.8rem; font-size: 1.02rem; line-height: 1.78; color: #374151; }}
+    .detail-section .prose-block {{ margin-top: 0.75rem; }}
+    .prose-block > :first-child {{ margin-top: 0; }}
+    .prose-block h2 {{ margin-top: 3.2rem; font-size: 1.45rem; }}
+    .prose-block h3 {{ margin-top: 2rem; font-size: 1.12rem; line-height: 1.35; }}
+    .prose-block p {{ margin: 0.9rem 0 0; color: #4b5563; }}
+    .prose-block ul, .prose-block ol {{ margin: 1rem 0 0; padding-left: 1.35rem; }}
+    .prose-block li {{ margin: 0.45rem 0; }}
+    .prose-block strong {{ font-weight: 600; color: #1f2937; }}
+    .prose-block table {{ width: 100%; margin-top: 1.35rem; border-collapse: separate; border-spacing: 0; border: 1px solid #e5e7eb; border-radius: 16px; overflow: hidden; }}
+    .prose-block th, .prose-block td {{ padding: 0.9rem 1rem; border-bottom: 1px solid #e5e7eb; text-align: left; vertical-align: top; }}
+    .prose-block tr:last-child td {{ border-bottom: 0; }}
+    .prose-block th {{ background: #f8fafc; color: #111827; font-size: 0.84rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }}
     .card-grid {{ grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }}
-    .hero-panel {{ background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); border: 1px solid #e5e7eb; border-radius: 16px; padding: 1.4rem; }}
-    .hero-panel h1 {{ margin-top: 0; margin-bottom: 0.75rem; font-size: 2.2rem; line-height: 1.1; }}
+    .hero-panel {{ background: linear-gradient(180deg, #ffffff 0%, #fbfbfd 100%); border: 1px solid #e5e7eb; border-radius: 24px; padding: 1.8rem; }}
+    .hero-panel h1 {{ margin-top: 0; margin-bottom: 0.75rem; font-size: 2rem; line-height: 1.08; letter-spacing: -0.025em; font-weight: 600; }}
     .hero-panel.compact h1 {{ font-size: 1.75rem; }}
     .dashboard-grid {{ display: grid; gap: 1rem; grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.9fr); align-items: start; }}
     .dashboard-side {{ display: grid; gap: 0.75rem; }}
     .insight-stack {{ display: grid; gap: 0.65rem; }}
-    .insight-mini {{ padding: 0.8rem 0.95rem; border-radius: 12px; background: #fff; border: 1px solid #e5e7eb; }}
+    .insight-mini {{ padding: 0.95rem 1rem; border-radius: 16px; background: #fff; border: 1px solid #e5e7eb; }}
     .insight-mini strong {{ display: block; margin-bottom: 0.3rem; }}
-    .insight-list {{ display: grid; gap: 0.75rem; margin-top: 1rem; }}
-    .insight-item {{ display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 0.75rem; align-items: start; padding: 0.9rem 1rem; border-radius: 12px; background: #fff; border: 1px solid #e5e7eb; }}
+    .insight-list {{ display: grid; gap: 0.85rem; margin-top: 1rem; }}
+    .insight-item {{ display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 0.85rem; align-items: start; padding: 1.05rem 1.1rem; border-radius: 18px; background: #fff; border: 1px solid #e5e7eb; }}
     .insight-rank {{ display: grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; background: #111827; color: #fff; font-size: 0.8rem; font-weight: 700; }}
-    .split-grid {{ display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }}
-    .compare-card {{ background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 1rem; }}
+    .insight-title {{ margin: 0; color: #111827; font-size: 1rem; line-height: 1.4; font-weight: 600; }}
+    .insight-detail {{ margin: 0.35rem 0 0; color: #6b7280; line-height: 1.65; }}
+    .split-grid {{ display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }}
+    .compare-card {{ background: #fff; border: 1px solid #e5e7eb; border-radius: 18px; padding: 1.2rem; }}
     .compare-card.before {{ border-color: #fecaca; background: #fffafa; }}
     .compare-card.after {{ border-color: #bfdbfe; background: #f8fbff; }}
+    .compare-list, .takeaway-list {{ display: grid; gap: 0.8rem; }}
+    .compare-item, .takeaway-item {{ padding: 0.95rem 1rem; border-radius: 14px; background: rgba(255, 255, 255, 0.72); border: 1px solid #e5e7eb; }}
+    .compare-item-title, .takeaway-title {{ margin: 0; color: #111827; font-size: 0.98rem; line-height: 1.42; font-weight: 600; }}
+    .compare-item-detail, .takeaway-detail {{ margin: 0.38rem 0 0; color: #6b7280; line-height: 1.62; }}
+    .structured-list {{ display: grid; gap: 0.8rem; }}
+    .structured-item {{ padding: 1rem 1.05rem; border-radius: 16px; background: #fff; border: 1px solid #e5e7eb; }}
+    .structured-title {{ margin: 0; color: #111827; font-size: 1rem; line-height: 1.42; font-weight: 600; }}
+    .structured-detail {{ margin: 0.38rem 0 0; color: #6b7280; line-height: 1.65; }}
     .signal-strip {{ display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }}
-    .signal-pill {{ display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.35rem 0.65rem; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: 0.78rem; font-weight: 600; }}
+    .signal-pill {{ display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.42rem 0.72rem; border-radius: 999px; background: #f5f7fb; color: #4b5563; font-size: 0.78rem; font-weight: 500; }}
     .kind-filter-list {{ display: flex; flex-wrap: wrap; gap: 0.45rem; margin-top: 0.75rem; }}
     .kind-filter {{ display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.6rem; border-radius: 999px; background: #0b1020; border: 1px solid #1f2937; color: #e5eefc; font-size: 0.75rem; }}
     .kind-filter input {{ accent-color: #60a5fa; }}
@@ -105,10 +143,12 @@ BASE_TEMPLATE = """\
     .graph-empty {{ position: absolute; inset: 0; display: grid; place-items: center; color: #cbd5e1; font-size: 0.95rem; pointer-events: none; }}
     .graph-empty[hidden] {{ display: none; }}
     .knowledge-grid {{ display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-top: 1rem; }}
-    .claim-card {{ background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem; }}
+    .claim-card {{ background: #fff; border: 1px solid #e5e7eb; border-radius: 18px; padding: 1.15rem; }}
     .claim-card p {{ margin: 0.35rem 0; }}
+    .claim-title {{ margin: 0.1rem 0 0; color: #111827; font-size: 1rem; line-height: 1.42; font-weight: 600; }}
+    .claim-detail {{ margin-top: 0.45rem; color: #6b7280; line-height: 1.65; }}
     .session-mini-list {{ display: grid; gap: 0.6rem; }}
-    .session-mini {{ padding: 0.8rem; border-radius: 8px; background: #f8fafc; border: 1px solid #e5e7eb; }}
+    .session-mini {{ padding: 0.95rem 1rem; border-radius: 16px; background: #fbfbfd; border: 1px solid #e5e7eb; }}
     .catalog-hero {{ margin: 0 0 2.2rem; max-width: none; }}
     .catalog-hero h1 {{ margin: 0 0 0.9rem; font-size: clamp(2.6rem, 6vw, 4.5rem); line-height: 0.98; letter-spacing: -0.03em; }}
     .catalog-hero p {{ margin: 0; font-size: 1.15rem; color: #4b5563; line-height: 1.6; }}
@@ -144,6 +184,8 @@ BASE_TEMPLATE = """\
     @media (max-width: 960px) {{
       .catalog-grid {{ grid-template-columns: 1fr; }}
       .catalog-card.featured {{ min-height: 340px; }}
+      main.detail-main {{ padding: 2.2rem 1.3rem 3rem; }}
+      .page-header h1 {{ max-width: none; }}
     }}
     .footer {{ margin-top: 2rem; color: #6b7280; font-size: 0.82rem; }}
   </style>
@@ -198,18 +240,21 @@ class HtmlWriter:
         *,
         entry: CacheEntry | None = None,
     ) -> Path:
-        html_content = self._md_to_html(md_content)
+        html_content = self._render_detail_markdown(md_content)
         sidebar = self._build_sidebar(repo, current=module, location="modules")
-        title = self._extract_title(md_content, module)
+        title = self._module_page_title(module, entry)
+        summary = entry.summary if entry and entry.summary else self._extract_first_paragraph(md_content)
+        intro_html = self._detail_page_header("Module", title, summary, compact=True)
         meta_html = self._module_meta(entry)
         knowledge_html = self._module_knowledge_panels(repo, module)
-        body = f"{meta_html}{knowledge_html}{html_content}"
+        body = f'<div class="page-body">{intro_html}{knowledge_html}<div class="prose-block">{html_content}</div>{meta_html}</div>'
         page = self._render_page(
             title=title,
             repo=repo,
             sidebar=sidebar,
             body=body,
             footer=f"{repo}/{module}",
+            main_class="detail-main",
         )
         html_path = md_path.with_suffix(".html")
         self._atomic_write(html_path, page)
@@ -220,6 +265,7 @@ class HtmlWriter:
         module_dir = repo_dir / "modules"
         store = SessionStore(self.wiki_dir)
         cache_data = self._load_cache_data()
+        recent_captures = self._fallback_captures_from_cache(repo)
 
         for md_path in sorted(module_dir.glob("*.md")) if module_dir.exists() else []:
             entry_dict = cache_data.get(f"{repo}/{md_path.stem}")
@@ -233,10 +279,18 @@ class HtmlWriter:
             )
 
         session_rows = store.get_recent_sessions(repo, limit=1000)
-        for row in session_rows:
-            self.write_session_page(repo, store.build_session_recap(repo, row["id"]))
+        if session_rows:
+            for row in session_rows:
+                self.write_session_page(repo, store.build_session_recap(repo, row["id"]))
+        else:
+            for session in self._fallback_sessions_from_captures(recent_captures):
+                recap = self._fallback_recap_for_session(repo, session["id"], recent_captures)
+                if recap is not None:
+                    self.write_session_page(repo, recap)
 
         graph_data = store.get_graph_data(repo)
+        if not graph_data.get("nodes") and recent_captures:
+            graph_data = self._fallback_graph_data(recent_captures)
         self.write_graph_data(repo, graph_data)
         self.write_graph_page(repo, graph_data)
         self.generate_index(repo)
@@ -251,6 +305,7 @@ class HtmlWriter:
             sidebar=self._build_sidebar(repo, current=f"session:{recap.session_id}", location="sessions"),
             body=body,
             footer=f"{repo}/sessions/{recap.session_id}",
+            main_class="detail-main",
         )
         path = session_dir / f"{recap.session_id}.html"
         self._atomic_write(path, page)
@@ -663,7 +718,7 @@ class HtmlWriter:
         return path
 
     def write_overview_page(self, repo: str, md_content: str) -> Path:
-        html_content = self._md_to_html(md_content)
+        html_content = self._render_detail_markdown(md_content)
         sidebar = self._build_sidebar(repo, current="overview", location="root")
         title = self._extract_title(md_content, repo)
         page = self._render_page(
@@ -909,8 +964,8 @@ class HtmlWriter:
                 capture["session_id"],
                 {
                     "id": capture["session_id"],
-                    "title": f"Session {capture['session_id']}",
-                    "summary": "Recovered from capture metadata.",
+                    "title": self._capture_topic_title(capture),
+                    "summary": capture.get("summary") or "Recovered from capture metadata.",
                     "updated_at": capture["captured_at"],
                     "capture_count": 0,
                 },
@@ -918,6 +973,10 @@ class HtmlWriter:
             session["capture_count"] += 1
             session["updated_at"] = max(session["updated_at"], capture["captured_at"])
         return list(sessions.values())
+
+    def _fallback_recap_for_session(self, repo: str, session_id: str, captures: list[dict]) -> SessionRecap | None:
+        session_captures = [capture for capture in captures if capture.get("session_id") == session_id]
+        return self._fallback_latest_recap(repo, session_captures)
 
     def _fallback_latest_recap(self, repo: str, captures: list[dict]) -> SessionRecap | None:
         if not captures:
@@ -933,7 +992,7 @@ class HtmlWriter:
         return SessionRecap(
             session_id=primary.get("session_id", "legacy-session"),
             repo=repo,
-            title=f"Recovered session for {primary.get('module', repo)}",
+            title=self._capture_topic_title(primary),
             summary=primary.get("summary", "Recovered latest session memory."),
             key_takeaways=takeaways,
             modules_touched=modules,
@@ -1126,99 +1185,136 @@ class HtmlWriter:
     def _render_session_recap(self, recap: SessionRecap) -> str:
         top_insights = self._session_top_insights(recap)
         insight_cards = "\n".join(
-            f"""
-            <div class="insight-item">
-              <div class="insight-rank">{idx}</div>
-              <div><strong>{escape(item)}</strong></div>
-            </div>
-            """
+            self._insight_card(idx, item)
             for idx, item in enumerate(top_insights, start=1)
         ) or '<p class="muted">No distilled insights yet.</p>'
-        takeaways = "\n".join(f"<li>{escape(item)}</li>" for item in recap.key_takeaways) or "<li>No takeaways yet.</li>"
-        decisions = "\n".join(f"<li>{escape(item)}</li>" for item in recap.decisions) or "<li>No explicit decisions captured.</li>"
-        gotchas = "\n".join(f"<li>{escape(item)}</li>" for item in recap.gotchas) or "<li>No gotchas captured.</li>"
-        questions = "\n".join(f"<li>{escape(item)}</li>" for item in recap.open_questions) or "<li>No open questions captured.</li>"
-        modules = "\n".join(f"<span class='badge'>{escape(module)}</span>" for module in recap.modules_touched) or "<span class='badge low'>No modules</span>"
-        sources = "\n".join(f"<li><code>{escape(path)}</code></li>" for path in recap.source_files) or "<li>No provenance recorded.</li>"
-        evidence_cards = "\n".join(self._session_claim_card(claim) for claim in recap.related_claims[:4]) or "<p class='muted'>No promoted claims yet.</p>"
-        before_points = "\n".join(f"<li>{escape(item)}</li>" for item in (recap.gotchas[:2] + recap.open_questions[:1])) or "<li>No explicit confusion captured.</li>"
-        after_points = "\n".join(f"<li>{escape(item)}</li>" for item in (recap.decisions[:2] + recap.key_takeaways[:2])) or "<li>No resolved insights captured yet.</li>"
+        takeaways = self._structured_item_list(
+            recap.key_takeaways,
+            list_class="takeaway-list",
+            item_class="takeaway-item",
+            title_class="takeaway-title",
+            detail_class="takeaway-detail",
+            empty_text="No takeaways yet.",
+        )
+        decisions = "\n".join(f"<li>{escape(item)}</li>" for item in recap.decisions)
+        gotchas = "\n".join(f"<li>{escape(item)}</li>" for item in recap.gotchas)
+        questions = "\n".join(f"<li>{escape(item)}</li>" for item in recap.open_questions)
+        sources = "\n".join(f"<li><code>{escape(path)}</code></li>" for path in recap.source_files)
+        evidence_cards = "\n".join(self._session_claim_card(claim) for claim in recap.related_claims[:4])
+        before_points = self._structured_item_list(
+            recap.gotchas[:2] + recap.open_questions[:1],
+            list_class="compare-list",
+            item_class="compare-item",
+            title_class="compare-item-title",
+            detail_class="compare-item-detail",
+            empty_text="No explicit confusion captured.",
+        )
+        after_points = self._structured_item_list(
+            recap.decisions[:2] + recap.key_takeaways[:2],
+            list_class="compare-list",
+            item_class="compare-item",
+            title_class="compare-item-title",
+            detail_class="compare-item-detail",
+            empty_text="No resolved insights captured yet.",
+        )
         session_health = self._session_health_metrics(recap)
-        meta_cards = f"""
-          <div class="meta">
-            <div class="meta-card"><p class="eyebrow">Signal Quality</p><strong>{session_health['quality']}</strong></div>
-            <div class="meta-card"><p class="eyebrow">Promoted Claims</p><strong>{len(recap.related_claims)}</strong></div>
-            <div class="meta-card"><p class="eyebrow">Modules Touched</p><strong>{len(recap.modules_touched)}</strong></div>
-            <div class="meta-card"><p class="eyebrow">Captured</p><strong>{_format_ts(recap.created_at)}</strong></div>
-          </div>
-        """
+        meta_cards = ""
+        if recap.related_claims:
+            meta_cards = f"""
+              <div class="meta">
+                <div class="meta-card"><p class="eyebrow">Signal Quality</p><strong>{session_health['quality']}</strong></div>
+                <div class="meta-card"><p class="eyebrow">Promoted Claims</p><strong>{len(recap.related_claims)}</strong></div>
+                <div class="meta-card"><p class="eyebrow">Captured</p><strong>{_format_ts(recap.created_at)}</strong></div>
+              </div>
+            """
+        intro = self._detail_page_header(
+            "Session recap",
+            recap.title,
+            recap.summary,
+            None,
+        )
         return f"""
-        <section class="hero">
-          <div class="hero-panel">
-            <p class="eyebrow">Session recap</p>
-            <h1>{escape(recap.summary)}</h1>
-            <p>{escape(recap.title)}</p>
-            <div class="signal-strip">
-              <span class="signal-pill">{escape(recap.session_id)}</span>
-              <span class="signal-pill">{len(recap.modules_touched)} modules</span>
-              <span class="signal-pill">{len(top_insights)} core insights</span>
-            </div>
-          </div>
-        </section>
+        <div class="page-body">
+        {intro}
         <h2>Core Insights</h2>
         <div class="insight-list">{insight_cards}</div>
         <h2>What Became Clear</h2>
         <div class="split-grid">
           <div class="compare-card before">
             <p class="eyebrow">Before</p>
-            <ul>{before_points}</ul>
+            {before_points}
           </div>
           <div class="compare-card after">
             <p class="eyebrow">After</p>
-            <ul>{after_points}</ul>
+            {after_points}
           </div>
         </div>
-        <h2>Evidence Highlights</h2>
-        <div class="knowledge-grid">{evidence_cards}</div>
+        {f'<h2>Evidence Highlights</h2><div class="knowledge-grid">{evidence_cards}</div>' if evidence_cards else ''}
         <h2>Key Takeaways</h2>
-        <div class="card"><ul>{takeaways}</ul></div>
-        <h2>Modules Touched</h2>
-        <div class="card">{modules}</div>
-        <div class="split-grid">
-          <div>
-            <h2>Decisions</h2>
-            <div class="card"><ul>{decisions}</ul></div>
-          </div>
-          <div>
-            <h2>Open Questions</h2>
-            <div class="card"><ul>{questions}</ul></div>
-          </div>
+        <div class="card">{takeaways}</div>
+        {f'<div class="split-grid"><div><h2>Decisions</h2><div class="card"><ul>{decisions}</ul></div></div><div><h2>Open Questions</h2><div class="card"><ul>{questions}</ul></div></div></div>' if decisions or questions else ''}
+        {f'<h2>Session Health</h2>{meta_cards}' if meta_cards else ''}
+        {f'<div class="card"><ul>{gotchas}</ul></div>' if gotchas else ''}
+        {f'<h2>Source Files</h2><div class="card"><ul>{sources}</ul></div>' if sources else ''}
         </div>
-        <h2>Session Health</h2>
-        {meta_cards}
-        <div class="card"><ul>{gotchas}</ul></div>
-        <h2>Source Files</h2>
-        <div class="card"><ul>{sources}</ul></div>
-        <h2>Related Graph</h2>
-        <div class="card"><a href="../graph.html">Open session graph</a></div>
+        """
+
+    def _detail_page_header(
+        self,
+        kicker: str,
+        title: str,
+        summary: str,
+        pills: list[str] | None = None,
+        compact: bool = False,
+    ) -> str:
+        signal_strip = ""
+        if pills:
+            signal_strip = '<div class="signal-strip">' + "".join(
+                f"<span class='signal-pill'>{escape(item)}</span>" for item in pills if item
+            ) + "</div>"
+        summary_title, summary_detail = self._structured_copy(summary, max_title_chars=88)
+        summary_title = summary_title or self._clean_copy(summary)
+        detail_html = f'<p class="page-summary-detail">{escape(summary_detail)}</p>' if summary_detail else ""
+        header_class = "page-header compact" if compact else "page-header"
+        return f"""
+        <section class="{header_class}">
+          <p class="eyebrow">{escape(kicker)}</p>
+          <h1>{escape(self._display_title(title))}</h1>
+          <p class="page-summary">{escape(summary_title)}</p>
+          {detail_html}
+          {signal_strip}
+        </section>
         """
 
     def _module_meta(self, entry: CacheEntry | None) -> str:
         if entry is None:
             return ""
-        source_list = "".join(f"<li><code>{escape(path)}</code></li>" for path in entry.source_files) or "<li>No source provenance captured.</li>"
+        cards: list[str] = []
+        if entry.capture_kind and entry.capture_kind != "session":
+            cards.append(f'<div class="meta-card"><p class="eyebrow">Capture Kind</p><strong>{escape(entry.capture_kind)}</strong></div>')
+        if entry.session_id:
+            cards.append(f'<div class="meta-card"><p class="eyebrow">Session</p><strong>{escape(entry.session_id)}</strong></div>')
+        if entry.staleness_state and entry.staleness_state != "unknown":
+            cards.append(f'<div class="meta-card"><p class="eyebrow">Freshness</p><strong>{escape(entry.staleness_state)}</strong></div>')
+        if entry.quality_score > 0:
+            cards.append(f'<div class="meta-card"><p class="eyebrow">Quality</p><strong>{entry.quality_score:.2f}</strong></div>')
+        source_list = "".join(f"<li><code>{escape(path)}</code></li>" for path in entry.source_files)
+        if not cards and not source_list:
+            return ""
+        provenance_html = ""
+        if source_list:
+            provenance_html = f"""
+            <div class="card">
+              <p class="eyebrow">Source Provenance</p>
+              <ul>{source_list}</ul>
+            </div>
+            """
+        cards_html = f'<div class="meta">{"".join(cards)}</div>' if cards else ""
         return f"""
-        <section class="hero">
-          <div class="meta">
-            <div class="meta-card"><p class="eyebrow">Capture Kind</p><strong>{escape(entry.capture_kind)}</strong></div>
-            <div class="meta-card"><p class="eyebrow">Session</p><strong>{escape(entry.session_id or 'n/a')}</strong></div>
-            <div class="meta-card"><p class="eyebrow">Freshness</p><strong>{escape(entry.staleness_state)}</strong></div>
-            <div class="meta-card"><p class="eyebrow">Quality</p><strong>{entry.quality_score:.2f}</strong></div>
-          </div>
-          <div class="card">
-            <p class="eyebrow">Source Provenance</p>
-            <ul>{source_list}</ul>
-          </div>
+        <section>
+          <h2>Capture Context</h2>
+          {cards_html}
+          {provenance_html}
         </section>
         """
 
@@ -1239,11 +1335,13 @@ class HtmlWriter:
 
     def _claim_card(self, claim: dict) -> str:
         evidence = ", ".join(escape(item) for item in claim["evidence_refs"][:3]) or "No evidence refs"
+        title, detail = self._structured_copy(claim["summary"])
         return f"""
         <article class="claim-card">
           <p class="eyebrow">{escape(claim['kind'].replace('_', ' '))}</p>
-          <p><strong>{escape(claim['summary'])}</strong></p>
-          <p class="muted">{escape(claim['why_it_matters'] or 'Distilled from session evidence.')}</p>
+          <p class="claim-title">{escape(title)}</p>
+          {f'<p class="claim-detail">{escape(detail)}</p>' if detail else ''}
+          <p class="muted">{escape(self._clean_copy(claim['why_it_matters'] or 'Distilled from session evidence.'))}</p>
           <span class="badge">trust {claim['final_score']:.2f}</span>
           <span class="badge">{escape(claim['staleness_state'])}</span>
           <p class="muted">Evidence: {evidence}</p>
@@ -1261,16 +1359,136 @@ class HtmlWriter:
 
     def _session_claim_card(self, claim: PromotedClaim) -> str:
         evidence = ", ".join(escape(item) for item in claim.evidence_refs[:2]) or "No evidence refs"
+        title, detail = self._structured_copy(claim.summary)
         return f"""
         <article class="claim-card">
           <p class="eyebrow">{escape(claim.kind.replace('_', ' '))}</p>
-          <p><strong>{escape(claim.summary)}</strong></p>
-          <p class="muted">{escape(claim.why_it_matters or 'Distilled from session evidence.')}</p>
+          <p class="claim-title">{escape(title)}</p>
+          {f'<p class="claim-detail">{escape(detail)}</p>' if detail else ''}
+          <p class="muted">{escape(self._clean_copy(claim.why_it_matters or 'Distilled from session evidence.'))}</p>
           <span class="badge">trust {claim.final_score:.2f}</span>
           <span class="badge">{escape(claim.staleness_state)}</span>
           <p class="muted">Evidence: {evidence}</p>
         </article>
         """
+
+    def _insight_card(self, rank: int, text: str) -> str:
+        title, detail = self._structured_copy(text)
+        detail_html = f'<p class="insight-detail">{escape(detail)}</p>' if detail else ""
+        return f"""
+            <div class="insight-item">
+              <div class="insight-rank">{rank}</div>
+              <div>
+                <p class="insight-title">{escape(title)}</p>
+                {detail_html}
+              </div>
+            </div>
+            """
+
+    def _structured_item_list(
+        self,
+        items: list[str],
+        *,
+        list_class: str,
+        item_class: str,
+        title_class: str,
+        detail_class: str,
+        empty_text: str,
+    ) -> str:
+        cleaned_items = [item for item in items if item]
+        if not cleaned_items:
+            return f'<div class="{list_class}"><div class="{item_class}"><p class="{title_class}">{escape(empty_text)}</p></div></div>'
+        cards = []
+        for item in cleaned_items:
+            title, detail = self._structured_copy(item)
+            detail_html = f'<p class="{detail_class}">{escape(detail)}</p>' if detail else ""
+            cards.append(
+                f'<div class="{item_class}"><p class="{title_class}">{escape(title)}</p>{detail_html}</div>'
+            )
+        return f'<div class="{list_class}">{"".join(cards)}</div>'
+
+    def _render_detail_markdown(self, content: str) -> str:
+        sections = self._split_markdown_sections(content)
+        if not sections:
+            return f'<div class="prose-block">{self._md_to_html(content)}</div>'
+        return "".join(self._render_detail_section(title, body) for title, body in sections if body.strip())
+
+    def _render_detail_section(self, title: str, body: str) -> str:
+        if self._section_needs_raw_markdown(body):
+            content_html = f'<div class="prose-block">{self._md_to_html(body)}</div>'
+        else:
+            items = self._section_items(body)
+            if items:
+                content_html = self._structured_item_list(
+                    items,
+                    list_class="structured-list",
+                    item_class="structured-item",
+                    title_class="structured-title",
+                    detail_class="structured-detail",
+                    empty_text="No details yet.",
+                )
+            else:
+                content_html = f'<div class="card"><p class="muted">{escape(self._clean_copy(body) or "No details yet.")}</p></div>'
+        return f"""
+        <section class="detail-section">
+          <h2>{escape(title)}</h2>
+          {content_html}
+        </section>
+        """
+
+    @staticmethod
+    def _split_markdown_sections(content: str) -> list[tuple[str, str]]:
+        sections: list[tuple[str, str]] = []
+        current_title = ""
+        current_lines: list[str] = []
+        for line in content.splitlines():
+            if line.startswith("## "):
+                if current_title:
+                    sections.append((current_title, "\n".join(current_lines).strip()))
+                current_title = line[3:].strip()
+                current_lines = []
+            else:
+                current_lines.append(line)
+        if current_title:
+            sections.append((current_title, "\n".join(current_lines).strip()))
+        return sections
+
+    @staticmethod
+    def _section_needs_raw_markdown(body: str) -> bool:
+        return (
+            "```" in body
+            or "|" in body
+            or bool(re.search(r"^\s*\d+\.\s", body, flags=re.MULTILINE))
+            or "### " in body
+        )
+
+    def _section_items(self, body: str) -> list[str]:
+        items: list[str] = []
+        paragraph: list[str] = []
+        last_item_index: int | None = None
+        for raw_line in body.splitlines():
+            line = raw_line.strip()
+            if not line:
+                if paragraph:
+                    items.append(" ".join(paragraph).strip())
+                    paragraph = []
+                    last_item_index = None
+                continue
+            if line.startswith(("- ", "* ")):
+                if paragraph:
+                    items.append(" ".join(paragraph).strip())
+                    paragraph = []
+                items.append(line[2:].strip())
+                last_item_index = len(items) - 1
+                continue
+            if raw_line.startswith(("  ", "\t")) and last_item_index is not None:
+                items[last_item_index] = f"{items[last_item_index]} {line}".strip()
+                continue
+            paragraph.append(line)
+            last_item_index = None
+        if paragraph:
+            items.append(" ".join(paragraph).strip())
+        return [item for item in items if item]
 
     def _session_top_insights(self, recap: SessionRecap) -> list[str]:
         insights: list[str] = []
@@ -1293,10 +1511,99 @@ class HtmlWriter:
             average = 0.0
         return {"quality": f"{average:.2f}"}
 
+    def _session_nav_titles(self, repo: str) -> dict[str, str]:
+        store = SessionStore(self.wiki_dir)
+        labels: dict[str, str] = {}
+        for session in store.get_recent_sessions(repo, limit=1000):
+            label = self._display_title(session.get("title") or session["id"], max_chars=44)
+            labels[session["id"]] = label
+        if labels:
+            return labels
+        for session in self._fallback_sessions_from_captures(self._fallback_captures_from_cache(repo)):
+            label = self._display_title(session.get("title") or session["id"], max_chars=44)
+            labels[session["id"]] = label
+        return labels
+
+    def _module_nav_titles(self, repo: str) -> dict[str, str]:
+        cache_data = self._load_cache_data()
+        labels: dict[str, str] = {}
+        for module in self._list_modules(repo):
+            entry_dict = cache_data.get(f"{repo}/{module}")
+            entry = CacheEntry.from_dict(entry_dict) if isinstance(entry_dict, dict) else None
+            label = self._module_page_title(module, entry)
+            labels[module] = self._display_title(label, max_chars=34)
+        return labels
+
+    @staticmethod
+    def _capture_topic_title(capture: dict) -> str:
+        generic_titles = {"purpose", "overview", "summary", "introduction", "details"}
+        title = str(capture.get("title", "")).strip()
+        if title and title.lower() not in generic_titles:
+            return title
+        module = str(capture.get("module", "")).strip()
+        if module:
+            return module.replace("_", " ").replace("-", " ").title()
+        return "Session Topic"
+
+    @staticmethod
+    def _module_page_title(module: str, entry: CacheEntry | None) -> str:
+        generic_titles = {"purpose", "overview", "summary", "introduction", "details"}
+        if entry and entry.title and entry.title.strip().lower() not in generic_titles:
+            return entry.title.strip()
+        return module.replace("_", " ").replace("-", " ").title()
+
+    @staticmethod
+    def _display_title(text: str, max_chars: int = 92) -> str:
+        text = (text or "").strip()
+        if len(text) <= max_chars:
+            return text
+        for marker in (" — ", ": ", ". ", ", "):
+            head, separator, _tail = text.partition(marker)
+            if separator and 18 <= len(head) <= max_chars:
+                return head
+        shortened = text[:max_chars].rsplit(" ", 1)[0].strip()
+        return (shortened or text[:max_chars]).rstrip(" ,.;:") + "..."
+
+    @staticmethod
+    def _extract_first_paragraph(content: str) -> str:
+        for line in content.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or stripped.startswith("```") or stripped.startswith("- "):
+                continue
+            return stripped
+        return ""
+
+    @staticmethod
+    def _clean_copy(text: str) -> str:
+        cleaned = re.sub(r"`([^`]*)`", r"\1", text or "")
+        cleaned = cleaned.replace("**", "").replace("__", "")
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        return cleaned.strip()
+
+    def _structured_copy(self, text: str, *, max_title_chars: int = 72) -> tuple[str, str]:
+        cleaned = self._clean_copy(text)
+        if not cleaned:
+            return "", ""
+        for marker in (" — ", ". ", ": "):
+            head, separator, tail = cleaned.partition(marker)
+            if separator and 12 <= len(head) <= max_title_chars:
+                return head.strip(), tail.strip()
+        if len(cleaned) <= max_title_chars:
+            return cleaned, ""
+        title = self._display_title(cleaned, max_chars=max_title_chars)
+        prefix = title[:-3].rstrip() if title.endswith("...") else title
+        if cleaned.startswith(prefix):
+            detail = cleaned[len(prefix):].lstrip(" .,:;-")
+        else:
+            detail = ""
+        return title, detail
+
     def _build_sidebar(self, repo: str, current: str = "", *, location: str = "modules") -> str:
         repo_dir = self.wiki_dir / "repos" / repo
         sessions_dir = repo_dir / "sessions"
         modules = self._list_modules(repo)
+        session_titles = self._session_nav_titles(repo)
+        module_titles = self._module_nav_titles(repo)
         href_prefix = {
             "root": "",
             "modules": "../",
@@ -1312,7 +1619,7 @@ class HtmlWriter:
         for href, label, active, class_name in items:
             active_class = " is-active" if active else ""
             primary_links.append(
-                f'<a href="{href_prefix}{href}" class="nav-link {class_name}{active_class}">{label}</a>'
+                f'<a href="{href_prefix}{href}" class="nav-link {class_name}{active_class}"><span class="nav-label">{label}</span></a>'
             )
         groups = [
             '<div class="nav-group"><div class="nav-links">' + "\n".join(primary_links) + "</div></div>"
@@ -1322,9 +1629,10 @@ class HtmlWriter:
             for page in sorted(sessions_dir.glob("*.html"), reverse=True)[:5]:
                 href = f"{href_prefix}sessions/{page.name}" if location != "sessions" else page.name
                 session_id = page.stem
+                label = session_titles.get(session_id, session_id)
                 active_class = " is-active" if current == f"session:{session_id}" else ""
                 session_links.append(
-                    f'<a href="{href}" class="nav-link nav-link-session{active_class}">{session_id}</a>'
+                    f'<a href="{href}" class="nav-link nav-link-session{active_class}"><span class="nav-label">{escape(label)}</span></a>'
                 )
             if session_links:
                 groups.append(
@@ -1336,8 +1644,9 @@ class HtmlWriter:
         for module in modules:
             active_class = " is-active" if module == current else ""
             href = f"{href_prefix}modules/{module}.html" if location != "modules" else f"{module}.html"
+            label = module_titles.get(module, module)
             module_links.append(
-                f'<a href="{href}" class="nav-link nav-link-module{active_class}">{module}</a>'
+                f'<a href="{href}" class="nav-link nav-link-module{active_class}"><span class="nav-label">{escape(label)}</span></a>'
             )
         groups.append(
             '<div class="nav-group"><div class="nav-section-title">Modules</div><div class="nav-links">'

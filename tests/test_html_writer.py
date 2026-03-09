@@ -2,9 +2,14 @@
 
 import json
 
+import wisewiki.html_writer as html_writer_module
 from wisewiki.html_writer import HtmlWriter
 from wisewiki.models import CacheEntry, PromotedClaim, SessionRecap
 from wisewiki.session_store import SessionStore
+
+
+def test_html_writer_exposes_promoted_claim_type():
+    assert html_writer_module.PromotedClaim is PromotedClaim
 
 
 def test_generate_index_builds_session_centric_home(tmp_path):
@@ -76,6 +81,8 @@ def test_generate_index_builds_session_centric_home(tmp_path):
     assert "Your AI Session Wiki" in html
     assert "Wisewiki turns useful AI conversations into clear session recaps, linked module pages, and a graph you can revisit later." in html
     assert "Latest Session" in html
+    assert "Recovered session for" not in html
+    assert "<h2>Executor</h2>" in html
     assert "Trusted Modules" in html
     assert "Open Questions" in html
     assert 'class="home-graph-preview"' in html
@@ -186,9 +193,90 @@ def test_write_module_page_includes_promoted_knowledge(tmp_path):
     )
     html = html_path.read_text(encoding="utf-8")
 
+    assert "<h1>Cache</h1>" in html
+    assert 'class="page-header compact"' in html
+    assert 'class="page-summary"' in html
+    assert 'class="detail-section"' in html
+    assert "Cache values for later use." in html
     assert "Promoted Knowledge" in html
     assert "Recent Sessions" in html
     assert "Prefer local-first cache reads" in html
+
+
+def test_write_module_page_uses_module_name_when_entry_title_is_generic(tmp_path):
+    repo = "demo"
+    module = "wisewiki_product_spec"
+    module_dir = tmp_path / "repos" / repo / "modules"
+    module_dir.mkdir(parents=True)
+    md_path = module_dir / f"{module}.md"
+    md_path.write_text("## Purpose\nModule summary.\n", encoding="utf-8")
+
+    writer = HtmlWriter(tmp_path)
+    html_path = writer.write_module_page(
+        repo,
+        module,
+        "## Purpose\nModule summary.\n",
+        md_path,
+        entry=CacheEntry(title="Purpose", summary="Module summary."),
+    )
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "<h1>Wisewiki Product Spec</h1>" in html
+    assert "<h1>Purpose</h1>" not in html
+
+
+def test_write_module_page_hides_empty_capture_context(tmp_path):
+    repo = "demo"
+    module = "wisewiki_product_spec"
+    module_dir = tmp_path / "repos" / repo / "modules"
+    module_dir.mkdir(parents=True)
+    md_path = module_dir / f"{module}.md"
+    md_path.write_text("## Purpose\nModule summary.\n", encoding="utf-8")
+
+    writer = HtmlWriter(tmp_path)
+    html_path = writer.write_module_page(
+        repo,
+        module,
+        "## Purpose\nModule summary.\n",
+        md_path,
+        entry=CacheEntry(title="Purpose", summary="Module summary."),
+    )
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "Capture Context" not in html
+    assert "Source Provenance" not in html
+    assert "Freshness" not in html
+    assert "Quality" not in html
+
+
+def test_write_module_page_moves_useful_capture_context_below_content(tmp_path):
+    repo = "demo"
+    module = "cache"
+    module_dir = tmp_path / "repos" / repo / "modules"
+    module_dir.mkdir(parents=True)
+    md_path = module_dir / f"{module}.md"
+    md_path.write_text("## Purpose\nCache values for later use.\n", encoding="utf-8")
+
+    writer = HtmlWriter(tmp_path)
+    html_path = writer.write_module_page(
+        repo,
+        module,
+        "## Purpose\nCache values for later use.\n",
+        md_path,
+        entry=CacheEntry(
+            title="Cache",
+            summary="Cache values for later use.",
+            session_id="session-one",
+            source_files=["src/wisewiki/cache.py"],
+            staleness_state="fresh",
+            quality_score=0.8,
+        ),
+    )
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "Capture Context" in html
+    assert "Source Provenance" in html
+    assert html.index("Capture Context") > html.index("Cache values for later use.")
 
 
 def test_write_session_page_prioritizes_core_insights_before_metadata(tmp_path):
@@ -250,13 +338,115 @@ def test_write_session_page_prioritizes_core_insights_before_metadata(tmp_path):
     html_path = writer.write_session_page("demo", recap)
     html = html_path.read_text(encoding="utf-8")
 
+    assert "<h1>Wisewiki session recap</h1>" in html
+    assert 'class="page-summary"' in html
+    assert 'class="page-summary-detail"' in html
+    assert 'class="signal-pill"' not in html
+    assert ">2 modules<" not in html
+    assert ">3 core insights<" not in html
+    assert 'class="insight-title"' in html
+    assert 'class="claim-title"' in html
+    assert 'class="compare-list"' in html
+    assert 'class="takeaway-list"' in html
+    assert "<strong>Lead with distilled insights instead of metadata.</strong>" not in html
+    assert "<strong>Hero should present one sentence plus three core insights.</strong>" not in html
     assert "Core Insights" in html
     assert "What Became Clear" in html
+    assert "Modules Touched" not in html
+    assert "Related Graph" not in html
     assert "Session Health" in html
     assert html.index("Core Insights") < html.index("Session Health")
     assert html.index("Lead with distilled insights instead of metadata.") < html.index("Session Health")
     assert "Users should understand the value of the session instantly." in html
     assert "Evidence Highlights" in html
+
+
+def test_write_module_page_structures_markdown_sections(tmp_path):
+    repo = "demo"
+    module = "pipeline_runner"
+    module_dir = tmp_path / "repos" / repo / "modules"
+    module_dir.mkdir(parents=True)
+    md_path = module_dir / f"{module}.md"
+    content = """## Purpose
+Runs the pipeline end to end. It coordinates loading, planning, and final execution.
+
+## Key Functions
+- `run_pipeline()`: Executes the full workflow for a request.
+- `summarize_plan()`: Produces a shorter operator-facing summary.
+
+## Design Decisions
+- Keep orchestration centralized: reduces state drift between steps.
+"""
+    md_path.write_text(content, encoding="utf-8")
+
+    writer = HtmlWriter(tmp_path)
+    html_path = writer.write_module_page(
+        repo,
+        module,
+        content,
+        md_path,
+        entry=CacheEntry(
+            title="Pipeline Runner",
+            summary="Runs the pipeline end to end. It coordinates loading, planning, and final execution.",
+        ),
+    )
+    html = html_path.read_text(encoding="utf-8")
+
+    assert 'class="detail-section"' in html
+    assert 'class="structured-list"' in html
+    assert 'class="structured-title"' in html
+    assert 'class="structured-detail"' in html
+
+
+def test_write_session_page_hides_empty_evidence_highlights(tmp_path):
+    writer = HtmlWriter(tmp_path)
+    recap = SessionRecap(
+        session_id="session-empty",
+        repo="demo",
+        title="Codewiki Vs Wisewiki Analysis",
+        summary="Comparative analysis of codewiki and wisewiki.",
+        key_takeaways=["Codewiki and wisewiki solve different parts of the same workflow."],
+        created_at=100.0,
+    )
+
+    html_path = writer.write_session_page("demo", recap)
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "Evidence Highlights" not in html
+    assert "No promoted claims yet." not in html
+    assert "Decisions" not in html
+    assert "Open Questions" not in html
+    assert "Session Health" not in html
+    assert "Source Files" not in html
+    assert "No gotchas captured." not in html
+    assert "Modules Touched" not in html
+    assert "Related Graph" not in html
+
+
+def test_detail_page_first_section_uses_tighter_spacing(tmp_path):
+    writer = HtmlWriter(tmp_path)
+    page = writer._render_page(
+        title="Demo",
+        repo="demo",
+        sidebar=None,
+        body="""
+        <div class="page-body">
+          <section class="page-header"><h1>Title</h1></section>
+          <section class="detail-section"><h2>Core Insights</h2></section>
+        </div>
+        """,
+        footer="demo/footer",
+        main_class="detail-main",
+    )
+
+    assert ".page-body > h2:first-of-type {" in page
+    assert "margin-top: 1.75rem;" in page
+    assert ".page-body > .detail-section:first-of-type {" in page
+    assert "margin-top: 1.1rem;" in page
+    assert ".page-header.compact + .detail-section {" in page
+    assert "margin-top: 0.35rem;" in page
+    assert ".detail-section > h2:first-child {" in page
+    assert "margin-top: 0;" in page
 
 
 def test_sidebar_renders_grouped_navigation_shell(tmp_path):
@@ -270,7 +460,24 @@ def test_sidebar_renders_grouped_navigation_shell(tmp_path):
 
     (module_dir / "claims.md").write_text("## Claims\n", encoding="utf-8")
     (module_dir / "html_writer.md").write_text("## Html Writer\n", encoding="utf-8")
+    (wiki_dir / ".index").mkdir(parents=True)
+    (wiki_dir / ".index" / "cache.json").write_text(
+        json.dumps(
+            {
+                f"{repo}/claims": {"title": "Promoted Claims", "summary": "Claims summary."},
+                f"{repo}/html_writer": {"title": "Purpose", "summary": "Writer summary."},
+            }
+        ),
+        encoding="utf-8",
+    )
     (session_dir / "clarity-session.html").write_text("<html></html>", encoding="utf-8")
+    store = SessionStore(wiki_dir)
+    store.ensure_session(repo, "clarity-session", created_at=100.0)
+    store.conn.execute(
+        "UPDATE sessions SET title = ?, summary = ? WHERE id = ?",
+        ("Knowledge Map", "A clear topic title.", "clarity-session"),
+    )
+    store.conn.commit()
 
     writer = HtmlWriter(wiki_dir)
     html = writer._build_sidebar(repo, current="session:clarity-session", location="root")
@@ -279,7 +486,28 @@ def test_sidebar_renders_grouped_navigation_shell(tmp_path):
     assert 'class="nav-section-title"' in html
     assert 'class="nav-link nav-link-session is-active"' in html
     assert 'class="nav-link nav-link-module"' in html
+    assert ">Knowledge Map</span></a>" in html
+    assert ">clarity-session</a>" not in html
+    assert ">Promoted Claims</span></a>" in html
+    assert ">Html Writer</span></a>" in html
+    assert ">html_writer</a>" not in html
+    assert 'class="nav-label"' in html
     assert "<h3>" not in html
+
+
+def test_sidebar_css_truncates_long_labels(tmp_path):
+    writer = HtmlWriter(tmp_path)
+    page = writer._render_page(
+        title="Demo",
+        repo="demo",
+        sidebar='<div class="nav-shell"><a href="x" class="nav-link nav-link-home"><span class="nav-label">A Very Long Topic Name That Should Not Overflow The Sidebar Width</span></a></div>',
+        body="<p>Demo</p>",
+        footer="demo/footer",
+    )
+
+    assert ".nav-label {" in page
+    assert "text-overflow: ellipsis;" in page
+    assert "white-space: nowrap;" in page
 
 
 def test_session_page_sidebar_uses_parent_relative_links(tmp_path):
