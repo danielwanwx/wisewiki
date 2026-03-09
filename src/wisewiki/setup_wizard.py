@@ -10,45 +10,45 @@ WIKI_SAVE_SKILL_CONTENT = """\
 
 Save code insights from this conversation to your local wiki.
 
+Default to a lean save. The goal is to preserve the most reusable knowledge from the session without spending extra tokens summarizing every file mentioned.
+
 ## Steps
 
 1. Review what code modules were discussed in this conversation
-2. For each meaningful module (skip trivial config files, boilerplate):
-   - Call `wiki_capture` with:
-     - `repo`: infer from file paths (use directory name, kebab-case, e.g. "my-project")
-     - `module`: component name in snake_case (e.g. "auth_service", "data_pipeline")
-     - `content`: structured markdown with your understanding
-     - `source_files`: optional list of concrete files discussed for provenance
-3. Report saved pages with their file:// links
+2. Save only the 1-2 highest-signal modules from the session
+3. Do not save every file or topic mentioned
+4. For each selected module, call `wiki_capture` with:
+   - `repo`: infer from file paths (use directory name, kebab-case, e.g. "my-project")
+   - `module`: component name in snake_case (e.g. "auth_service", "data_pipeline")
+   - `content`: concise structured markdown with your understanding
+   - `source_files`: optional list of concrete files discussed for provenance
+5. After saving, report the main HTML entry points first, then list any module pages that were created
 
 ## Content Format
+
+Keep each `content` payload concise. Prefer 4-8 short bullets or brief paragraphs total. Avoid long rewrites of the conversation.
 
 Use this structure for each module page:
 
 ```markdown
 ## Purpose
-What this module does and why it exists (1-2 paragraphs).
-Focus on WHY, not just what — the code already shows what it does.
+What this module does and why it exists (1 short paragraph).
 
 ## Key Functions
-- `function_name(param: type) -> return_type`: brief description of contract
-- `other_function(a: str, b: int) -> dict`: when to use and what it returns
+- `function_name(...)`: brief contract
+- `other_function(...)`: when to use it
 
 ## Design Decisions
-- **Decision title**: Rationale. What alternatives were considered and why they were rejected.
-- **Another decision**: More context on the tradeoff made.
+- **Decision title**: short rationale
 
 ## Architecture (if applicable)
-How this module connects to other modules. Data flow.
+Short data flow or dependency note.
 
 ## Gotchas (if applicable)
-- Hidden behavior, non-obvious constraints, or pitfalls future sessions should remember.
+- Hidden behavior or non-obvious constraint.
 
 ## Open Questions (if applicable)
-- Important unresolved questions worth carrying into a future coding session.
-
-## Metrics (if mentioned)
-- Any performance figures, latency numbers, or scale characteristics discussed
+- Important unresolved question worth carrying forward.
 ```
 
 ## Repo Name Convention
@@ -68,6 +68,7 @@ How this module connects to other modules. Data flow.
 - GOTCHAS and non-obvious behaviors discovered during debugging
 - CONTEXT that the code itself doesn't make obvious
 - SOURCE FILES when you can point to the concrete evidence
+- ONLY the most reusable parts of the session
 
 ## What to Skip
 - Trivial files: `__init__.py` with no logic, `conftest.py`, pure config
@@ -75,13 +76,26 @@ How this module connects to other modules. Data flow.
 - Files you only briefly mentioned without gaining understanding
 - Test files (unless the test reveals important behavior about the module under test)
 - Standard library wrappers with no domain logic
+- Saving 3+ modules unless the session genuinely covered multiple major areas
+- Long prose summaries that restate the chat transcript
 
 ## After Saving
+First report these entry points:
+
+- repo home: `.../index.html`
+- session recap: `.../sessions/<session_id>.html`
+- graph: `.../graph.html`
+
+Then list any module pages that were created.
+
 Report a summary like:
 
-Saved 3 wiki pages for help-cpl:
+Saved 2 wiki pages for help-cpl:
+
+- Home → file:///Users/alice/.wisewiki/repos/help-cpl/index.html
+- Session recap → file:///Users/alice/.wisewiki/repos/help-cpl/sessions/session-20260308-120000.html
+- Graph → file:///Users/alice/.wisewiki/repos/help-cpl/graph.html
 - executor → file:///Users/alice/.wisewiki/repos/help-cpl/modules/executor.html
-- config → file:///Users/alice/.wisewiki/repos/help-cpl/modules/config.html
 - pipeline_runner → file:///Users/alice/.wisewiki/repos/help-cpl/modules/pipeline_runner.html
 
 Run `wiki view help-cpl` to browse all pages.
@@ -184,7 +198,12 @@ def _setup_cursor(wiki_dir: str) -> None:
 
 def _install_skill(skills_dir: Path) -> Path:
     skills_dir.mkdir(parents=True, exist_ok=True)
-    skill_path = skills_dir / "wiki-save.md"
+    legacy_path = skills_dir / "wiki-save.md"
+    skill_dir = skills_dir / "wiki-save"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    skill_path = skill_dir / "SKILL.md"
+    if legacy_path.exists() and not skill_path.exists():
+        legacy_path.replace(skill_path)
     skill_path.write_text(WIKI_SAVE_SKILL_CONTENT, encoding="utf-8")
     return skill_path
 
